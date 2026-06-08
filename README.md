@@ -18,12 +18,12 @@ The generated Markdown files use the `.md` extension.
 
 ## Files Included
 
-The project root is intentionally simple. The user only needs these visible files:
+The project root keeps the everyday entry points simple:
 
 - `run.vbs` - double-click this file to start the tool without showing a terminal window.
 - `README.md` - this guide.
 
-The application files are stored in the hidden `.pdf_to_md_internal` folder. Do not move, rename, or delete that folder.
+The application itself is a Python package in the `src/doc2md` folder, and the launcher helper lives in `scripts/`. Do not move, rename, or delete those folders.
 
 ## Before You Start
 
@@ -70,17 +70,18 @@ run.vbs
 
 3. Wait a moment.
 
-On the first run, the tool checks the required Python libraries and installs anything missing from the internal requirements file.
+On the first run, the tool creates a private virtual environment in a `.venv` folder next to the project and installs the application and its required Python libraries into it.
 
 The required libraries are:
 
 - `pypdf`
 - `python-docx`
 - `python-pptx`
+- `pdfminer.six`
 
-If the libraries are already installed, the tool starts normally.
+After this one-time setup, later launches reuse the same environment and start immediately, without checking or reinstalling anything. The tool only reinstalls when the application version changes.
 
-If nothing appears immediately, wait up to a minute on the first run. Installing libraries can take a little time, especially on a slow internet connection.
+If nothing appears immediately, wait up to a minute on the first run. Creating the environment and installing the libraries can take a little time, especially on a slow internet connection.
 
 ## How To Convert A Single File
 
@@ -142,16 +143,22 @@ The default settings are usually the best choice:
 
 Untick `Overwrite existing Markdown files` if you do not want the tool to replace existing `.md` files.
 
+## Changing the Language
+
+The interface is available in English and Portuguese. Use the `Language` selector at the top-right corner of the window to switch between them. Your choice is remembered for the next time you open the tool.
+
+The generated Markdown content is always written with English structural labels, regardless of the interface language.
+
 ## Troubleshooting
 
 ### The Tool Does Not Open
 
 Wait one minute first. The first launch may be installing Python libraries in the background.
 
-If it still does not open, check the launcher log file in the hidden internal folder:
+If it still does not open, check the launcher log file in the `scripts` folder:
 
 ```text
-.pdf_to_md_internal\pdf_to_md_launcher.log
+scripts\pdf_to_md_launcher.log
 ```
 
 Open it with Notepad and read the last lines. They usually explain the problem.
@@ -171,13 +178,13 @@ This usually means one of these things:
 - antivirus or company security policy blocked the installation;
 - the user does not have permission to install Python packages.
 
-Try opening Command Prompt and running:
+The simplest fix is to delete the `.venv` folder in the project and double-click `run.vbs` again, which rebuilds the environment from scratch.
+
+Alternatively, open Command Prompt in the project folder and run:
 
 ```bat
-python -m pip install -r ".pdf_to_md_internal\requirements.txt"
+python -m pip install -e .
 ```
-
-Run that command from the project folder.
 
 ### A Terminal Window Flashes Briefly
 
@@ -203,7 +210,8 @@ Send the whole folder with these files:
 
 - `run.vbs`
 - `README.md`
-- the hidden `.pdf_to_md_internal` folder
+- the `src` and `scripts` folders
+- `pyproject.toml`
 
 The other person should extract the folder, open it, and double-click:
 
@@ -211,7 +219,37 @@ The other person should extract the folder, open it, and double-click:
 run.vbs
 ```
 
-They do not need to install the Python libraries manually. The launcher checks and installs them automatically.
+They do not need to install the Python libraries manually. The launcher builds its own environment and installs everything automatically on the first run.
+
+## Running From Source (Developers)
+
+This tool is packaged as a standard Python project. To run it from a clone of the repository:
+
+```bat
+python -m pip install -e .
+python -m doc2md
+```
+
+Install the optional development tools with `python -m pip install -e .[dev]` and run `ruff check .` to lint.
+
+## Building a Standalone Executable
+
+You can package the tool as a single Windows executable that runs without a separate Python installation. This is convenient for sharing with people who do not have Python.
+
+From the project folder, run:
+
+```text
+scripts\build_exe.bat
+```
+
+This installs the build dependencies and produces `dist\doc2md.exe`. You can then share that single file; double-clicking it starts the application directly.
+
+To build manually instead:
+
+```bat
+python -m pip install -e .[build]
+python -m PyInstaller --noconfirm --clean doc2md.spec
+```
 
 ## License
 

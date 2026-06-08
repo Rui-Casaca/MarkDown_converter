@@ -14,9 +14,16 @@ build/
 dist/
 *.egg-info/
 .eggs/
+src/*.egg-info/
+
+# PyInstaller build artifacts
+*.manifest
+
+# Legacy internal folder (superseded by the src/doc2md package)
+.pdf_to_md_internal/
 
 # Launcher runtime log (contains local machine paths)
-.pdf_to_md_internal/pdf_to_md_launcher.log
+scripts/pdf_to_md_launcher.log
 *.log
 
 # Tool output produced at runtime
