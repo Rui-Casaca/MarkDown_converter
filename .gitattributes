@@ -1,0 +1,13 @@
+# Normalize line endings automatically for text files
+* text=auto
+
+# Windows launcher scripts must keep CRLF endings to run correctly
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.vbs text eol=crlf
+*.ps1 text eol=crlf
+
+# Python and documentation use LF
+*.py text eol=lf
+*.md text eol=lf
+*.txt text eol=lf

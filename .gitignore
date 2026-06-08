@@ -1,0 +1,35 @@
+# Byte-compiled / optimized Python files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# Launcher runtime log (contains local machine paths)
+.pdf_to_md_internal/pdf_to_md_launcher.log
+*.log
+
+# Tool output produced at runtime
+MarkDowns_converted/
+
+# Operating system files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editor / IDE folders
+.vscode/
+.idea/
+*.swp
