@@ -228,3 +228,50 @@ class TestPptxImageExtraction:
 
         assert "![](out_assets/image_1.png)" in text
         assert (tmp_path / "out_assets" / "image_1.png").exists()
+
+
+class TestDocxComments:
+    def test_anchors_inline_and_renders_callout(self, docx_with_comments, tmp_path) -> None:
+        manager = DependencyManager(ALL_DEPENDENCIES)
+        converter = DocxMarkdownConverter(ConversionOptions(include_comments=True), manager)
+        output = tmp_path / "out.md"
+        converter.convert(_make_job(docx_with_comments, output))
+        text = output.read_text(encoding="utf-8")
+
+        assert "\u27e6grew by 12%\u27e7\u00b9" in text
+        assert "[!COMMENT] Comment 1 \u2014 Jane Doe" in text
+        assert '**About:** "grew by 12%"' in text
+        assert "**Note:** Please verify this figure." in text
+
+    def test_comments_disabled_by_default(self, docx_with_comments, tmp_path) -> None:
+        manager = DependencyManager(ALL_DEPENDENCIES)
+        converter = DocxMarkdownConverter(ConversionOptions(), manager)
+        output = tmp_path / "out.md"
+        converter.convert(_make_job(docx_with_comments, output))
+        text = output.read_text(encoding="utf-8")
+
+        assert "[!COMMENT]" not in text
+        assert "\u27e6" not in text
+
+
+class TestPdfCommentHelpers:
+    def test_format_pdf_date_full(self) -> None:
+        assert PdfMarkdownConverter._format_pdf_date("D:20240512103000Z") == "2024-05-12 10:30"
+
+    def test_format_pdf_date_date_only(self) -> None:
+        assert PdfMarkdownConverter._format_pdf_date("D:20240512") == "2024-05-12"
+
+    def test_format_pdf_date_empty(self) -> None:
+        assert PdfMarkdownConverter._format_pdf_date("") == ""
+
+    def test_text_in_quads_selects_chars_in_reading_order(self) -> None:
+        chars = [("H", 10.0, 100.0), ("i", 20.0, 100.0), ("X", 500.0, 100.0)]
+        quad = [0.0, 90.0, 100.0, 90.0, 0.0, 110.0, 100.0, 110.0]
+        assert PdfMarkdownConverter._text_in_quads(quad, chars) == "Hi"
+
+    def test_nearest_line_text_picks_closest(self) -> None:
+        lines = [
+            ("top line", 0.0, 700.0, 100.0, 720.0),
+            ("bottom line", 0.0, 100.0, 100.0, 120.0),
+        ]
+        assert PdfMarkdownConverter._nearest_line_text([0.0, 695.0, 100.0, 715.0], lines) == "top line"

@@ -118,6 +118,33 @@ def sample_png(tmp_path: Path) -> Path:
 
 
 @pytest.fixture
+def docx_with_comments(tmp_path: Path) -> Path:
+    """Create a DOCX with a single review comment anchored to a run of text."""
+    from docx import Document
+
+    document = Document()
+    document.add_heading("Quarterly Report", level=1)
+    paragraph = document.add_paragraph()
+    paragraph.add_run("The quarterly revenue ")
+    commented = paragraph.add_run("grew by 12%")
+    paragraph.add_run(" in Q2.")
+
+    if not hasattr(document, "add_comment"):
+        pytest.skip("python-docx build lacks comment authoring support")
+
+    document.add_comment(
+        runs=[commented],
+        text="Please verify this figure.",
+        author="Jane Doe",
+        initials="JD",
+    )
+
+    path = tmp_path / "commented.docx"
+    document.save(str(path))
+    return path
+
+
+@pytest.fixture
 def docx_with_image(tmp_path: Path, sample_png: Path) -> Path:
     """Create a DOCX containing a single embedded picture."""
     from docx import Document

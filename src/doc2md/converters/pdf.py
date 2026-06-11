@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+import re
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -12,6 +13,7 @@ from ..markdown_utils import MarkdownUtils
 from ..models import PDF_DEPENDENCY, ConversionOptions
 from .assets import AssetWriter, extension_from_name, image_markdown
 from .base import DocumentToMarkdownConverter
+from .comments import Comment, render_comment_callout
 from .ocr import OcrEngine
 
 # Lines this many times larger than the body text are treated as headings.
@@ -58,6 +60,11 @@ class PdfMarkdownConverter(DocumentToMarkdownConverter):
             pages_lines = self._extract_pages_with_sizes(input_path)
         body_size = self._estimate_body_size(pages_lines) if pages_lines else 0.0
 
+        self._comment_index_counter = 0
+        pdf_text_boxes = (
+            self._extract_pages_text_boxes(input_path) if self.options.include_comments else None
+        )
+
         page_blocks: list[str] = []
         for index, page in enumerate(reader.pages, start=1):
             if self.options.include_page_slide_separators:
@@ -88,6 +95,9 @@ class PdfMarkdownConverter(DocumentToMarkdownConverter):
 
             if asset_writer is not None:
                 page_blocks.extend(self._extract_page_images(page, asset_writer))
+
+            if self.options.include_comments:
+                page_blocks.extend(self._extract_page_comments(page, index, pdf_text_boxes))
 
         content = "\n\n".join(block for block in page_blocks if block.strip())
         if not content:
@@ -137,6 +147,217 @@ class PdfMarkdownConverter(DocumentToMarkdownConverter):
             if relative_path:
                 refs.append(image_markdown(relative_path))
         return refs
+
+    # -- Review comments (PDF annotations) -------------------------------------
+
+    def _extract_page_comments(
+        self,
+        page: Any,
+        page_number: int,
+        page_boxes: list[dict[str, list]] | None,
+    ) -> list[str]:
+        """Return rendered comment callouts for the annotations on a single page."""
+        try:
+            annotations = self._resolve(page.get("/Annots"))
+        except Exception:
+            annotations = None
+        if not annotations:
+            return []
+
+        boxes = None
+        if page_boxes is not None and 0 <= page_number - 1 < len(page_boxes):
+            boxes = page_boxes[page_number - 1]
+
+        comments_by_key: dict[tuple[int, int], Comment] = {}
+        ordered: list[tuple[tuple[int, int] | None, Comment]] = []
+        for reference in annotations:
+            annotation = self._resolve(reference)
+            if not hasattr(annotation, "get"):
+                continue
+            subtype = str(annotation.get("/Subtype", "") or "")
+            if subtype in ("/Popup", "/Link"):
+                continue
+
+            note = self._annotation_text(annotation.get("/Contents"))
+            subject = self._annotation_text(annotation.get("/Subj"))
+            anchor = self._annotation_anchor(annotation, boxes)
+            text = note or subject
+            if not text and not anchor:
+                continue
+
+            comment = Comment(
+                author=self._annotation_text(annotation.get("/T")),
+                date=self._format_pdf_date(self._annotation_text(annotation.get("/M"))),
+                anchor_text=anchor,
+                text=text,
+                location=f"page {page_number}",
+                resolved=self._annotation_resolved(annotation),
+            )
+            key = self._reference_key(reference)
+            if key is not None:
+                comments_by_key[key] = comment
+            parent_value = annotation.get("/IRT")
+            parent_key = self._reference_key(parent_value) if parent_value is not None else None
+            ordered.append((parent_key, comment))
+
+        top_level: list[Comment] = []
+        for parent_key, comment in ordered:
+            parent = comments_by_key.get(parent_key) if parent_key is not None else None
+            if parent is not None and parent is not comment:
+                parent.replies.append(comment)
+            else:
+                top_level.append(comment)
+
+        callouts: list[str] = []
+        for comment in top_level:
+            self._comment_index_counter += 1
+            comment.index = self._comment_index_counter
+            callouts.append(render_comment_callout(comment))
+        return callouts
+
+    @staticmethod
+    def _resolve(value: Any) -> Any:
+        getter = getattr(value, "get_object", None)
+        if callable(getter):
+            try:
+                return getter()
+            except Exception:
+                return value
+        return value
+
+    @staticmethod
+    def _reference_key(reference: Any) -> tuple[int, int] | None:
+        idnum = getattr(reference, "idnum", None)
+        if idnum is None:
+            return None
+        return (int(idnum), int(getattr(reference, "generation", 0) or 0))
+
+    def _annotation_text(self, value: Any) -> str:
+        value = self._resolve(value)
+        if value is None:
+            return ""
+        if isinstance(value, bytes):
+            for encoding in ("utf-16", "utf-8", "latin-1"):
+                try:
+                    return MarkdownUtils.value_to_text(value.decode(encoding))
+                except Exception:
+                    continue
+            return ""
+        return MarkdownUtils.value_to_text(str(value))
+
+    def _annotation_resolved(self, annotation: Any) -> bool:
+        state = self._annotation_text(annotation.get("/State")).lower()
+        return state in ("completed", "accepted", "resolved")
+
+    def _annotation_anchor(self, annotation: Any, boxes: dict[str, list] | None) -> str:
+        if boxes is None:
+            return ""
+        quad_points = self._resolve(annotation.get("/QuadPoints"))
+        if quad_points:
+            try:
+                text = self._text_in_quads([float(value) for value in quad_points], boxes["chars"])
+            except Exception:
+                text = ""
+            if text:
+                return text
+        rectangle = self._resolve(annotation.get("/Rect"))
+        if rectangle:
+            try:
+                return self._nearest_line_text([float(value) for value in rectangle], boxes["lines"])
+            except Exception:
+                return ""
+        return ""
+
+    @staticmethod
+    def _text_in_quads(quad: list[float], chars: list[tuple[str, float, float]]) -> str:
+        regions: list[tuple[float, float, float, float]] = []
+        for start in range(0, len(quad) - 7, 8):
+            xs = quad[start : start + 8 : 2]
+            ys = quad[start + 1 : start + 8 : 2]
+            regions.append((min(xs), min(ys), max(xs), max(ys)))
+        if not regions:
+            return ""
+        selected: list[tuple[float, float, str]] = []
+        for character, center_x, center_y in chars:
+            for x0, y0, x1, y1 in regions:
+                if x0 - 1 <= center_x <= x1 + 1 and y0 - 1 <= center_y <= y1 + 1:
+                    selected.append((center_y, center_x, character))
+                    break
+        if not selected:
+            return ""
+        selected.sort(key=lambda item: (-round(item[0]), item[1]))
+        return "".join(item[2] for item in selected).strip()
+
+    @staticmethod
+    def _nearest_line_text(
+        rectangle: list[float],
+        lines: list[tuple[str, float, float, float, float]],
+    ) -> str:
+        if not lines or len(rectangle) < 4:
+            return ""
+        rect_center_y = (rectangle[1] + rectangle[3]) / 2.0
+        best_text = ""
+        best_distance: float | None = None
+        for text, _x0, y0, _x1, y1 in lines:
+            distance = abs((y0 + y1) / 2.0 - rect_center_y)
+            if best_distance is None or distance < best_distance:
+                best_distance = distance
+                best_text = text
+        return best_text
+
+    @staticmethod
+    def _extract_pages_text_boxes(input_path: Path) -> list[dict[str, list]] | None:
+        """Return per-page text-line boxes and character centers for annotation anchoring."""
+        try:
+            high_level = importlib.import_module("pdfminer.high_level")
+            layout = importlib.import_module("pdfminer.layout")
+        except Exception:
+            return None
+
+        text_container = layout.LTTextContainer
+        text_line = layout.LTTextLine
+        char_type = layout.LTChar
+        laparams = layout.LAParams()
+
+        pages: list[dict[str, list]] = []
+        try:
+            for page_layout in high_level.extract_pages(str(input_path), laparams=laparams):
+                lines: list[tuple[str, float, float, float, float]] = []
+                chars: list[tuple[str, float, float]] = []
+                for element in page_layout:
+                    if not isinstance(element, text_container):
+                        continue
+                    for line in element:
+                        if not isinstance(line, text_line):
+                            continue
+                        text = line.get_text().strip()
+                        if text:
+                            x0, y0, x1, y1 = line.bbox
+                            lines.append((text, x0, y0, x1, y1))
+                        for character in line:
+                            if isinstance(character, char_type):
+                                cx0, cy0, cx1, cy1 = character.bbox
+                                chars.append(
+                                    (character.get_text(), (cx0 + cx1) / 2.0, (cy0 + cy1) / 2.0)
+                                )
+                pages.append({"lines": lines, "chars": chars})
+        except Exception:
+            return None
+        return pages
+
+    @staticmethod
+    def _format_pdf_date(value: str) -> str:
+        value = (value or "").strip()
+        if not value:
+            return ""
+        match = re.match(r"D?:?\s*(\d{4})(\d{2})?(\d{2})?(\d{2})?(\d{2})?", value)
+        if not match:
+            return value
+        year, month, day, hour, minute = match.groups()
+        date_part = "-".join(part for part in (year, month, day) if part)
+        if hour and minute:
+            return f"{date_part} {hour}:{minute}"
+        return date_part
 
     @staticmethod
     def _extract_pages_with_sizes(input_path: Path) -> list[list[tuple[str, float]]] | None:

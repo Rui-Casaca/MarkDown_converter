@@ -51,6 +51,7 @@ class ConversionOptions:
     header_style: str = HEADER_STYLE_BLOCKQUOTE
     extract_images: bool = False
     enable_ocr: bool = False
+    include_comments: bool = False
     enabled_extensions: set[str] = field(default_factory=lambda: set(SUPPORTED_EXTENSIONS))
 
 

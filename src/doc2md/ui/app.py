@@ -66,8 +66,8 @@ class DocumentToMarkdownApp(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
         self.title(APP_TITLE)
-        self.geometry("900x650")
-        self.minsize(820, 560)
+        self.geometry("900x720")
+        self.minsize(820, 620)
 
         set_language(load_language(current_language()))
 
@@ -107,6 +107,7 @@ class DocumentToMarkdownApp(tk.Tk):
         self.header_style_display_var = tk.StringVar()
         self.extract_images_var = tk.BooleanVar(value=False)
         self.enable_ocr_var = tk.BooleanVar(value=False)
+        self.include_comments_var = tk.BooleanVar(value=False)
 
         self._build_ui()
         self._handle_mode_change(clear_selection=False)
@@ -267,6 +268,11 @@ class DocumentToMarkdownApp(tk.Tk):
             text=t("check.ocr"),
             variable=self.enable_ocr_var,
         ).grid(row=5, column=0, sticky="w", pady=2)
+        ttk.Checkbutton(
+            options_frame,
+            text=t("check.comments"),
+            variable=self.include_comments_var,
+        ).grid(row=5, column=1, sticky="w", pady=2)
 
         header_style_frame = ttk.Frame(options_frame)
         header_style_frame.grid(row=6, column=0, columnspan=2, sticky="w", pady=(4, 0))
@@ -648,6 +654,7 @@ class DocumentToMarkdownApp(tk.Tk):
             header_style=self.header_style_var.get(),
             extract_images=self.extract_images_var.get(),
             enable_ocr=self.enable_ocr_var.get(),
+            include_comments=self.include_comments_var.get(),
             enabled_extensions=enabled_extensions,
         )
 

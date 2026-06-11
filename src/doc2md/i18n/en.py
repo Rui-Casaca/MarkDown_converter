@@ -41,6 +41,7 @@ CATALOG: dict[str, str] = {
     "check.toc": "Include table of contents",
     "check.images": "Extract embedded images",
     "check.ocr": "Run OCR on scanned PDF pages",
+    "check.comments": "Include document comments",
     # Buttons
     "button.select_file": "Select file...",
     "button.select_files": "Select files...",
